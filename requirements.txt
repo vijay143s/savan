@@ -1,5 +1,7 @@
-fastapi
-uvicorn[standard]
-requests
-pycryptodome
-a2wsgi
+requests>=2.31.0
+pycryptodome>=3.19.0
+mutagen>=1.47.0
+tqdm>=4.66.0
+fastapi>=0.109.0
+uvicorn>=0.27.0
+a2wsgi>=1.10.4
