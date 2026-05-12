@@ -293,11 +293,11 @@ def get_suggestions(song_id: str):
 
 @app.get("/api/hindi/albums")
 def get_hindi_albums(page: int = 1, limit: int = 12):
-    """Fetch Hindi albums from JioSaavn."""
+    """Fetch Hindi albums from JioSaavn via search."""
     try:
         data = _api({
             "__call": "search.getAlbumResults",
-            "q": "hindi",
+            "q": "bollywood",
             "p": str(page),
             "n": str(limit),
             "languages": "hindi",
@@ -329,41 +329,53 @@ def get_hindi_albums(page: int = 1, limit: int = 12):
         raise HTTPException(500, f"Failed to fetch Hindi albums: {e}")
 
 
-@app.get("/api/hindi/playlists")
-def get_hindi_playlists(page: int = 1, limit: int = 12):
-    """Fetch Hindi playlists from JioSaavn."""
+@app.get("/api/hindi/featured")
+def get_hindi_featured():
+    """
+    Fetch Hindi trending/featured content using the homepage API.
+    Returns: featured_playlists, charts (trending), new_albums.
+    """
     try:
+        # Set hindi language cookie then call homepage
+        session.cookies.set("L", "hindi,english", domain="www.jiosaavn.com")
         data = _api({
-            "__call": "search.getPlaylistResults",
-            "q": "hindi bollywood",
-            "p": str(page),
-            "n": str(limit),
+            "__call": "content.getHomepageData",
             "languages": "hindi",
         })
-        results = data.get("results", data.get("data", []))
-        playlists = []
-        for r in results:
-            playlists.append({
-                "id": r.get("listid", r.get("id", "")),
-                "title": _clean(r.get("listname", r.get("title", r.get("name", "")))),
-                "subtitle": _clean(r.get("subtitle", r.get("header_desc", ""))),
-                "image": _image_hq(r.get("image", "")),
-                "language": r.get("language", "hindi"),
-                "type": "playlist",
-                "song_count": r.get("list_count", 0),
-            })
-        total = int(data.get("total", len(playlists)))
-        return {
-            "data": playlists,
-            "pagination": {
-                "page": page,
-                "limit": limit,
-                "total": total,
-                "pages": max(1, -(-total // limit)),
+
+        def _card(raw):
+            return {
+                "id": raw.get("albumid", raw.get("listid", raw.get("id", ""))),
+                "title": _clean(raw.get("title", raw.get("name", raw.get("listname", "")))),
+                "subtitle": _clean(
+                    raw.get("subtitle", raw.get("header_desc", raw.get("primary_artists", "")))
+                ),
+                "image": _image_hq(raw.get("image", "")),
+                "type": raw.get("type", "album"),
+                "language": raw.get("language", "hindi"),
+                "year": raw.get("year", ""),
             }
+
+        featured_playlists = [_card(p) for p in data.get("featured_playlists", []) if p.get("image")]
+        charts = [_card(c) for c in data.get("charts", []) if c.get("image")]
+        new_albums = [_card(a) for a in data.get("new_albums", []) if a.get("image")]
+        trending = [_card(t) for t in data.get("trending", {}).get("albums", []) if t.get("image")]
+        top_playlists = [_card(p) for p in data.get("top_playlists", []) if p.get("image")]
+
+        # Restore default language cookie
+        session.cookies.set("L", "telugu,english", domain="www.jiosaavn.com")
+
+        return {
+            "featured_playlists": featured_playlists,
+            "charts": charts,
+            "new_albums": new_albums,
+            "trending": trending,
+            "top_playlists": top_playlists,
         }
     except Exception as e:
-        raise HTTPException(500, f"Failed to fetch Hindi playlists: {e}")
+        # Restore cookie on error too
+        session.cookies.set("L", "telugu,english", domain="www.jiosaavn.com")
+        raise HTTPException(500, f"Failed to fetch Hindi featured content: {e}")
 
 
 # ─── Serve Frontend ──────────────────────────────────────────────────────────
