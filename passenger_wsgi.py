@@ -11,8 +11,12 @@ try:
     
     # This is what Passenger looks for
     application = ASGIMiddleware(app)
-except Exception as e:
+except Exception as err:
+    # Capture the error message to avoid NameError
+    error_message = str(err)
+    
     # If the app fails to load, this helps debug
     def application(environ, start_response):
         start_response('500 Internal Server Error', [('Content-Type', 'text/plain')])
-        return [f"Error loading application: {str(e)}\nPath: {APP_DIR}\nPython: {sys.version}".encode()]
+        body = f"Error loading application: {error_message}\nPath: {APP_DIR}\nPython: {sys.version}"
+        return [body.encode()]
