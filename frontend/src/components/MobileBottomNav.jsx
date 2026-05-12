@@ -11,14 +11,13 @@ const MobileBottomNav = () => {
   const menuItems = [
     { icon: assets.home_icon, label: "Home", path: "/" },
     { icon: assets.search_icon, label: "Search", path: "/search" },
-    { icon: assets.stack_icon, label: "Queue", path: "/queue" },
     { icon: assets.like_icon, label: "Liked", path: "/liked" },
     { icon: null, label: "Hindi", path: "/hindi", emoji: "🇮🇳" },
   ];
 
   return (
     <div className="w-full bg-[#121212] border-t border-white/10 z-30">
-      <div className="grid grid-cols-5 gap-0">
+      <div className="grid grid-cols-4 gap-0">
         {menuItems.map((item) => {
           const isActive = location.pathname === item.path;
           return (
@@ -50,4 +49,3 @@ const MobileBottomNav = () => {
 };
 
 export default MobileBottomNav;
-

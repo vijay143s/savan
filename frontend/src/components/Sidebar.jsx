@@ -3,7 +3,6 @@ import { NavLink } from "react-router-dom";
 import { GoHome } from "react-icons/go";
 import { IoSearch } from "react-icons/io5";
 import { FaMusic, FaHeart, FaIndianRupeeSign } from "react-icons/fa6";
-import { MdQueueMusic } from "react-icons/md";
 
 const Sidebar = () => {
   const linkClass = ({ isActive }) =>
@@ -30,10 +29,6 @@ const Sidebar = () => {
         <NavLink to="/search" className={linkClass}>
           <IoSearch size={22} />
           <span>Search</span>
-        </NavLink>
-        <NavLink to="/queue" className={linkClass}>
-          <MdQueueMusic size={22} />
-          <span>Queue</span>
         </NavLink>
         <NavLink to="/liked" className={linkClass}>
           <FaHeart size={18} className="ml-0.5 mr-0.5" />

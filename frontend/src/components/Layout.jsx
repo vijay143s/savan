@@ -9,15 +9,16 @@ const Layout = ({ children }) => {
   return (
     <div className="h-screen flex flex-col bg-[#0f0f0f]">
       {/* Main Content Area */}
-      <div className="flex-1 flex overflow-hidden">
+      <div className="flex-1 flex overflow-hidden min-h-0">
         {/* Desktop Sidebar */}
         <div className="hidden lg:block lg:w-80 xl:w-60 flex-shrink-0">
           <Sidebar />
         </div>
-        
-        {/* Content Area - with bottom padding on mobile to account for nav + player */}
+
+        {/* Content Area */}
         <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-          <div className="flex-1 overflow-y-auto bg-[#121212] text-white pb-28 lg:pb-0">
+          {/* pb-40 on mobile: reserves space for player (~100px) + bottom nav (~64px) */}
+          <div className="flex-1 overflow-y-auto bg-[#121212] text-white pb-40 lg:pb-0">
             <div className="w-full lg:px-6 pt-2 md:pt-4 pb-2">
               <Navbar />
               {children}
@@ -26,14 +27,12 @@ const Layout = ({ children }) => {
         </div>
       </div>
 
-      {/* Player - always visible, above bottom nav on mobile */}
-      <div className="order-2 lg:order-1">
+      {/* Fixed bottom stack on mobile: Player on top, BottomNav beneath */}
+      <div className="flex-shrink-0">
         <Player />
-      </div>
-
-      {/* Mobile Bottom Navigation (visible on mobile only) - positioned above player on mobile */}
-      <div className="lg:hidden order-3">
-        <MobileBottomNav />
+        <div className="lg:hidden">
+          <MobileBottomNav />
+        </div>
       </div>
     </div>
   );

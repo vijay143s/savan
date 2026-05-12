@@ -14,7 +14,7 @@ import requests
 from Crypto.Cipher import DES
 from fastapi import FastAPI, Query, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
 # ─── Config ───────────────────────────────────────────────────────────────────
@@ -225,6 +225,102 @@ def search(q: str = Query(..., min_length=1), page: int = 1, limit: int = 20):
         "results": [_format_song(s) for s in results],
     }
 
+
+@app.get("/api/search/albums")
+def search_albums(q: str = Query(..., min_length=1), page: int = 1, limit: int = 24):
+    """
+    Search JioSaavn for albums.
+    Strategy 1: Extract unique albums from song search results (most reliable).
+    Strategy 2: Try search.getAlbums directly and merge.
+    """
+    seen_ids: set = set()
+    albums: list = []
+
+    # ── Strategy 1: song search → dedupe by albumid (always works) ──────────
+    try:
+        song_data = _api({
+            "__call": "search.getResults",
+            "q": q,
+            "p": "1",
+            "n": "50",   # fetch more songs to get more unique albums
+        })
+        for song in song_data.get("results", []):
+            aid  = song.get("albumid", "")
+            atitle = _clean(song.get("album", ""))
+            if not aid or aid in seen_ids or not atitle:
+                continue
+            seen_ids.add(aid)
+            albums.append({
+                "id":       aid,
+                "title":    atitle,
+                "subtitle": _clean(song.get("primary_artists", "")),
+                "image":    _image_hq(song.get("image", "")),
+                "year":     song.get("year", ""),
+                "language": song.get("language", ""),
+                "type":     "album",
+            })
+    except Exception:
+        pass
+
+    # ── Strategy 2: search.getAlbums (merge in extra results) ───────────────
+    try:
+        album_data = _api({
+            "__call": "search.getAlbums",
+            "q": q,
+            "p": str(page),
+            "n": str(limit),
+        })
+        raw = album_data.get("results", album_data.get("data", []))
+        for a in raw:
+            if not isinstance(a, dict):
+                continue
+            aid = a.get("albumid", a.get("id", ""))
+            if not aid or aid in seen_ids:
+                continue
+            seen_ids.add(aid)
+            albums.append({
+                "id":       aid,
+                "title":    _clean(a.get("title", a.get("name", ""))),
+                "subtitle": _clean(a.get("music", a.get("primary_artists", a.get("header_desc", "")))),
+                "image":    _image_hq(a.get("image", "")),
+                "year":     a.get("year", ""),
+                "language": a.get("language", ""),
+                "type":     "album",
+            })
+    except Exception:
+        pass
+
+    return {"total": len(albums), "results": albums[:limit]}
+
+
+
+@app.get("/api/search/playlists")
+def search_playlists(q: str = Query(..., min_length=1), page: int = 1, limit: int = 20):
+    """Search JioSaavn for playlists matching the query."""
+    data = _api({
+        "__call": "search.getPlaylists",
+        "q": q,
+        "p": str(page),
+        "n": str(limit),
+    })
+    results = data.get("results", data.get("data", []))
+    playlists = []
+    for p in results:
+        if not isinstance(p, dict):
+            continue
+        playlists.append({
+            "id": p.get("listid", p.get("id", "")),
+            "title": _clean(p.get("listname", p.get("title", p.get("name", "")))),
+            "subtitle": _clean(p.get("firstname", p.get("subtitle", p.get("header_desc", "")))),
+            "image": _image_hq(p.get("image", "")),
+            "language": p.get("language", ""),
+            "type": "playlist",
+            "song_count": p.get("song_count", p.get("count", "")),
+        })
+    return {"total": data.get("total", len(playlists)), "results": playlists}
+
+
+
 @app.get("/api/song/{song_id}")
 def get_song(song_id: str):
     data = _api({"__call": "song.getDetails", "pids": song_id})
@@ -250,17 +346,237 @@ def get_playlist(playlist_id: str):
 
 @app.get("/api/home")
 def get_home():
-    data = _api({"__call": "content.getHomepageData"})
+    """Home page data — forced to Telugu language."""
+    session.cookies.set("L", "telugu,english", domain="www.jiosaavn.com")
+    data = _api({
+        "__call": "content.getHomepageData",
+        "languages": "telugu,english",
+    })
+    # Collect all promo sections (promo0…promo9) as extra playlists/albums
+    extra_playlists, extra_albums = [], []
+    seen_pl, seen_al = set(), set()
+    for key, val in data.items():
+        if key.lower().startswith("promo") and isinstance(val, list):
+            for item in val:
+                if not isinstance(item, dict) or not item.get("image"):
+                    continue
+                card = _format_card(item)
+                itype = item.get("type", "")
+                if itype == "playlist" and card["id"] not in seen_pl:
+                    seen_pl.add(card["id"])
+                    extra_playlists.append(card)
+                elif itype == "album" and card["id"] not in seen_al:
+                    seen_al.add(card["id"])
+                    extra_albums.append(card)
+
+    base_playlists = [_format_card(p) for p in data.get("featured_playlists", [])]
+    base_albums    = [_format_card(a) for a in data.get("new_albums", [])]
+
+    # Merge, dedup
+    all_pl_ids = {c["id"] for c in base_playlists}
+    for c in extra_playlists:
+        if c["id"] not in all_pl_ids:
+            base_playlists.append(c)
+            all_pl_ids.add(c["id"])
+
+    all_al_ids = {c["id"] for c in base_albums}
+    for c in extra_albums:
+        if c["id"] not in all_al_ids:
+            base_albums.append(c)
+            all_al_ids.add(c["id"])
+
     return {
-        "new_albums": [_format_card(a) for a in data.get("new_albums", [])],
-        "playlists": [_format_card(p) for p in data.get("featured_playlists", [])],
+        "new_albums": base_albums,
+        "playlists": base_playlists,
         "charts": [_format_card(c) for c in data.get("charts", [])],
+        "top_playlists": [_format_card(p) for p in data.get("top_playlists", [])],
+        "trending": [
+            _format_card(t)
+            for t in (data.get("trending", {}).get("albums", []) if isinstance(data.get("trending"), dict) else [])
+        ],
         "genres": [
             {"title": _clean(g.get("title", "")), "image": _image_hq(g.get("image", "")),
              "url": g.get("perma_url", ""), "id": g.get("id", "")}
             for g in data.get("genres", [])
         ],
     }
+
+
+# Curated Telugu playlist IDs from JioSaavn
+TELUGU_PLAYLIST_IDS = [
+    "159614539",  # Top 50 Telugu
+    "159614540",  # Telugu Hits
+    "159660638",  # Telugu Romantic
+    "159614541",  # Telugu Party
+    "159577657",  # 90s Telugu
+    "159614542",  # Telugu Sad Songs
+    "159660639",  # DSP Hits
+    "159614543",  # Thaman Hits
+    "159660641",  # Anirudh Ravichander Telugu
+    "159614544",  # Allu Arjun Hits
+    "159614545",  # Pawan Kalyan Songs
+    "159671659",  # NTR Songs
+    "159614546",  # Tollywood Dance
+    "159671657",  # Telugu Devotional
+    "159614547",  # Latest Telugu 2024
+    "159660642",  # Telugu Folk
+    "159671662",  # Ram Charan Songs
+    "159660643",  # Mahesh Babu Songs
+    "159614549",  # Telugu Love Songs
+    "159671663",  # Vijay Devarakonda Hits
+]
+
+TELUGU_ALBUM_QUERIES = [
+    "telugu hits 2024",
+    "tollywood blockbuster",
+    "allu arjun songs",
+    "dsp bgm telugu",
+    "thaman telugu",
+    "new telugu songs",
+    "telugu romantic songs",
+    "anirudh telugu",
+    "pawan kalyan hit songs",
+    "mahesh babu songs",
+]
+
+
+@app.get("/api/telugu/home")
+def get_telugu_home():
+    """
+    Rich Telugu homepage built by directly querying JioSaavn for Telugu content.
+    Uses dedicated language=telugu API calls instead of the generic homepage
+    (which always returns mixed Hindi/English content).
+    """
+    result = {
+        "charts": [],
+        "featured_playlists": [],
+        "new_albums": [],
+        "trending": [],
+    }
+
+    # ── 1. Telugu Charts via content.getCharts ──────────────────────────────
+    try:
+        chart_data = _api({
+            "__call": "content.getCharts",
+            "language": "telugu",
+            "languages": "telugu",
+        })
+        items = chart_data if isinstance(chart_data, list) else chart_data.get("charts", chart_data.get("data", []))
+        result["charts"] = [
+            _make_card(c, "telugu") for c in items
+            if isinstance(c, dict) and c.get("image")
+        ]
+    except Exception:
+        pass
+
+    # ── 2. Telugu Featured Playlists via search.getPlaylists ────────────────
+    playlist_queries = [
+        "telugu hits",
+        "tollywood romantic",
+        "telugu party songs",
+        "telugu sad songs",
+        "dsp hits telugu",
+        "thaman s telugu",
+        "anirudh telugu songs",
+        "allu arjun songs",
+        "90s telugu hits",
+        "new telugu 2024",
+        "telugu folk songs",
+        "pawan kalyan songs",
+        "mahesh babu hits",
+        "ram charan songs",
+        "ntr songs telugu",
+    ]
+    seen_pl: set = set()
+    for q in playlist_queries:
+        try:
+            data = _api({
+                "__call": "search.getPlaylists",
+                "q": q,
+                "p": "1",
+                "n": "5",
+                "language": "telugu",
+                "languages": "telugu",
+            })
+            items = data.get("results", data.get("data", []))
+            for pl in items:
+                if not isinstance(pl, dict):
+                    continue
+                pid = pl.get("listid", pl.get("id", ""))
+                if not pid or pid in seen_pl or not pl.get("image"):
+                    continue
+                # Filter: skip playlists explicitly tagged as non-Telugu
+                lang = pl.get("language", "").lower()
+                if lang and lang not in ("telugu", ""):
+                    continue
+                seen_pl.add(pid)
+                result["featured_playlists"].append(_make_card(pl, "telugu"))
+        except Exception:
+            continue
+
+    # ── 3. Telugu New Albums from song search ───────────────────────────────
+    seen_al: set = set()
+    for q in TELUGU_ALBUM_QUERIES:
+        try:
+            data = _api({
+                "__call": "search.getResults",
+                "q": q,
+                "p": "1",
+                "n": "20",
+                "language": "telugu",
+                "languages": "telugu",
+            })
+            for song in data.get("results", []):
+                # Only include songs that are actually Telugu
+                if song.get("language", "").lower() not in ("telugu", ""):
+                    continue
+                aid = song.get("albumid", "")
+                if aid and aid not in seen_al and song.get("image"):
+                    seen_al.add(aid)
+                    result["new_albums"].append({
+                        "id": aid,
+                        "title": _clean(song.get("album", "")),
+                        "subtitle": _clean(song.get("primary_artists", "")),
+                        "image": _image_hq(song.get("image", "")),
+                        "type": "album",
+                        "language": "telugu",
+                        "year": song.get("year", ""),
+                        "artist": _clean(song.get("primary_artists", "")),
+                    })
+        except Exception:
+            continue
+
+    # ── 4. Trending: top Telugu songs grouped by album ──────────────────────
+    try:
+        tr_data = _api({
+            "__call": "content.getTopSongs",
+            "language": "telugu",
+            "languages": "telugu",
+            "p": "1",
+            "n": "20",
+        })
+        tr_songs = tr_data if isinstance(tr_data, list) else tr_data.get("songs", tr_data.get("data", []))
+        seen_tr: set = set()
+        for song in tr_songs:
+            if not isinstance(song, dict):
+                continue
+            aid = song.get("albumid", "")
+            if aid and aid not in seen_tr and song.get("image"):
+                seen_tr.add(aid)
+                result["trending"].append({
+                    "id": aid,
+                    "title": _clean(song.get("album", song.get("song", ""))),
+                    "subtitle": _clean(song.get("primary_artists", "")),
+                    "image": _image_hq(song.get("image", "")),
+                    "type": "album",
+                    "language": "telugu",
+                    "year": song.get("year", ""),
+                    "artist": _clean(song.get("primary_artists", "")),
+                })
+    except Exception:
+        pass
+
+    return result
 
 @app.get("/api/lyrics/{song_id}")
 def get_lyrics(song_id: str):
@@ -291,6 +607,49 @@ def get_suggestions(song_id: str):
         return []
     except Exception: return []
 
+
+@app.get("/api/download/{song_id}")
+def download_song(song_id: str):
+    """Stream a JioSaavn song as a downloadable audio file."""
+    # 1. Fetch song metadata to get the decrypted URL and filename
+    data = _api({"__call": "song.getDetails", "pids": song_id})
+    songs = data.get("songs", [])
+    if not songs:
+        raise HTTPException(404, "Song not found")
+
+    formatted = _format_song(songs[0])
+    stream_url = formatted.get("url", "")
+    if not stream_url:
+        raise HTTPException(404, "Audio URL not available for this song")
+
+    # Build a safe filename
+    title = re.sub(r"[^\w\s-]", "", formatted.get("title", "song")).strip()
+    artist = re.sub(r"[^\w\s-]", "", formatted.get("artist", "")).strip()
+    filename = f"{title} - {artist}.mp4" if artist else f"{title}.mp4"
+
+    # 2. Proxy-stream the audio from JioSaavn CDN to the client
+    try:
+        upstream = session.get(stream_url, stream=True, timeout=30)
+        upstream.raise_for_status()
+
+        content_type = upstream.headers.get("Content-Type", "audio/mpeg")
+
+        def iterfile():
+            for chunk in upstream.iter_content(chunk_size=8192):
+                if chunk:
+                    yield chunk
+
+        return StreamingResponse(
+            iterfile(),
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Content-Length": upstream.headers.get("Content-Length", ""),
+            },
+        )
+    except requests.RequestException as exc:
+        raise HTTPException(502, f"Failed to fetch audio: {exc}")
+
 @app.get("/api/hindi/debug")
 def debug_hindi_api():
     """Debug: show raw JioSaavn response keys for hindi homepage."""
@@ -311,7 +670,7 @@ def debug_hindi_api():
         return {"error": str(e)}
 
 
-def _make_card(raw: dict) -> dict:
+def _make_card(raw: dict, default_language: str = "") -> dict:
     """Convert any JioSaavn item to a frontend card."""
     return {
         "id": raw.get("albumid", raw.get("listid", raw.get("id", ""))),
@@ -321,7 +680,7 @@ def _make_card(raw: dict) -> dict:
         ),
         "image": _image_hq(raw.get("image", "")),
         "type": raw.get("type", "album"),
-        "language": raw.get("language", "hindi"),
+        "language": raw.get("language", default_language),
         "year": raw.get("year", ""),
         "artist": _clean(raw.get("primary_artists", raw.get("singers", raw.get("music", "")))),
     }
