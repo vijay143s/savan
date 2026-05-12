@@ -11,7 +11,7 @@ const MobileBottomNav = () => {
     { icon: assets.home_icon, label: "Home", path: "/" },
     { icon: assets.search_icon, label: "Search", path: "/search" },
     { icon: assets.stack_icon, label: "Queue", path: "/queue" },
-    { icon: assets.plays_icon, label: "Playlist", path: "/playlist" },
+    { icon: assets.like_icon, label: "Liked", path: "/liked" },
   ];
 
   return (
