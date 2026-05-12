@@ -291,91 +291,208 @@ def get_suggestions(song_id: str):
         return []
     except Exception: return []
 
-@app.get("/api/hindi/albums")
-def get_hindi_albums(page: int = 1, limit: int = 12):
-    """Fetch Hindi albums from JioSaavn via search."""
+@app.get("/api/hindi/debug")
+def debug_hindi_api():
+    """Debug: show raw JioSaavn response keys for hindi homepage."""
     try:
-        data = _api({
-            "__call": "search.getAlbumResults",
-            "q": "bollywood",
-            "p": str(page),
-            "n": str(limit),
-            "languages": "hindi",
-        })
-        results = data.get("results", data.get("data", []))
-        albums = []
-        for r in results:
-            albums.append({
-                "id": r.get("albumid", r.get("id", "")),
-                "title": _clean(r.get("title", r.get("name", ""))),
-                "subtitle": _clean(r.get("subtitle", r.get("header_desc", r.get("primary_artists", "")))),
-                "image": _image_hq(r.get("image", "")),
-                "artist": _clean(r.get("primary_artists", r.get("music", ""))),
-                "year": r.get("year", ""),
-                "language": r.get("language", "hindi"),
-                "type": "album",
-            })
-        total = int(data.get("total", len(albums)))
-        return {
-            "data": albums,
-            "pagination": {
-                "page": page,
-                "limit": limit,
-                "total": total,
-                "pages": max(1, -(-total // limit)),
-            }
-        }
+        session.cookies.set("L", "hindi,english", domain="www.jiosaavn.com")
+        data = _api({"__call": "content.getHomepageData", "languages": "hindi"})
+        session.cookies.set("L", "telugu,english", domain="www.jiosaavn.com")
+        summary = {}
+        for k, v in data.items():
+            if isinstance(v, list):
+                summary[k] = f"list[{len(v)}]"
+            elif isinstance(v, dict):
+                summary[k] = f"dict(keys={list(v.keys())[:5]})"
+            else:
+                summary[k] = str(v)[:100]
+        return {"keys": summary}
     except Exception as e:
-        raise HTTPException(500, f"Failed to fetch Hindi albums: {e}")
+        return {"error": str(e)}
+
+
+def _make_card(raw: dict) -> dict:
+    """Convert any JioSaavn item to a frontend card."""
+    return {
+        "id": raw.get("albumid", raw.get("listid", raw.get("id", ""))),
+        "title": _clean(raw.get("title", raw.get("name", raw.get("listname", raw.get("album", ""))))),
+        "subtitle": _clean(
+            raw.get("subtitle", raw.get("header_desc", raw.get("primary_artists", raw.get("singers", ""))))
+        ),
+        "image": _image_hq(raw.get("image", "")),
+        "type": raw.get("type", "album"),
+        "language": raw.get("language", "hindi"),
+        "year": raw.get("year", ""),
+        "artist": _clean(raw.get("primary_artists", raw.get("singers", raw.get("music", "")))),
+    }
+
+
+@app.get("/api/hindi/albums")
+def get_hindi_albums():
+    """
+    Fetch Hindi albums by extracting unique albums from song search results.
+    Uses search.getResults (the reliably working JioSaavn API) with multiple
+    Hindi queries, then deduplicates by albumid.
+    """
+    seen_ids: set = set()
+    albums: list = []
+
+    queries = [
+        "arijit singh 2024",
+        "atif aslam bollywood",
+        "new hindi songs 2024",
+        "bollywood hits 2023",
+        "bollywood romantic",
+        "hindi party songs",
+    ]
+
+    for q in queries:
+        try:
+            data = _api({
+                "__call": "search.getResults",
+                "q": q,
+                "p": "1",
+                "n": "20",
+                "languages": "hindi",
+            })
+            for song in data.get("results", []):
+                album_id = song.get("albumid", "")
+                album_title = _clean(song.get("album", ""))
+                if album_id and album_id not in seen_ids and album_title:
+                    seen_ids.add(album_id)
+                    albums.append({
+                        "id": album_id,
+                        "title": album_title,
+                        "subtitle": _clean(song.get("primary_artists", "")),
+                        "image": _image_hq(song.get("image", "")),
+                        "artist": _clean(song.get("primary_artists", song.get("singers", ""))),
+                        "year": song.get("year", ""),
+                        "language": song.get("language", "hindi"),
+                        "type": "album",
+                    })
+        except Exception:
+            continue
+
+    return {
+        "data": albums,
+        "pagination": {
+            "page": 1,
+            "limit": len(albums),
+            "total": len(albums),
+            "pages": 1,
+        },
+    }
 
 
 @app.get("/api/hindi/featured")
 def get_hindi_featured():
     """
-    Fetch Hindi trending/featured content using the homepage API.
-    Returns: featured_playlists, charts (trending), new_albums.
+    Fetch Hindi trending/featured content.
+    Strategy 1: content.getHomepageData with languages=hindi
+    Strategy 2: content.getCharts with language=hindi
+    Strategy 3: Build playlists from song search results grouped by artist
     """
+    result = {
+        "charts": [],
+        "featured_playlists": [],
+        "new_albums": [],
+        "trending": [],
+        "top_playlists": [],
+    }
+
+    # ── Strategy 1: Homepage data with Hindi language ─────────────────────
     try:
-        # Set hindi language cookie then call homepage
         session.cookies.set("L", "hindi,english", domain="www.jiosaavn.com")
-        data = _api({
-            "__call": "content.getHomepageData",
-            "languages": "hindi",
-        })
-
-        def _card(raw):
-            return {
-                "id": raw.get("albumid", raw.get("listid", raw.get("id", ""))),
-                "title": _clean(raw.get("title", raw.get("name", raw.get("listname", "")))),
-                "subtitle": _clean(
-                    raw.get("subtitle", raw.get("header_desc", raw.get("primary_artists", "")))
-                ),
-                "image": _image_hq(raw.get("image", "")),
-                "type": raw.get("type", "album"),
-                "language": raw.get("language", "hindi"),
-                "year": raw.get("year", ""),
-            }
-
-        featured_playlists = [_card(p) for p in data.get("featured_playlists", []) if p.get("image")]
-        charts = [_card(c) for c in data.get("charts", []) if c.get("image")]
-        new_albums = [_card(a) for a in data.get("new_albums", []) if a.get("image")]
-        trending = [_card(t) for t in data.get("trending", {}).get("albums", []) if t.get("image")]
-        top_playlists = [_card(p) for p in data.get("top_playlists", []) if p.get("image")]
-
-        # Restore default language cookie
+        home = _api({"__call": "content.getHomepageData", "languages": "hindi"})
         session.cookies.set("L", "telugu,english", domain="www.jiosaavn.com")
 
-        return {
-            "featured_playlists": featured_playlists,
-            "charts": charts,
-            "new_albums": new_albums,
-            "trending": trending,
-            "top_playlists": top_playlists,
-        }
-    except Exception as e:
-        # Restore cookie on error too
+        result["charts"] = [_make_card(c) for c in home.get("charts", []) if c.get("image")]
+        result["featured_playlists"] = [_make_card(p) for p in home.get("featured_playlists", []) if p.get("image")]
+        result["new_albums"] = [_make_card(a) for a in home.get("new_albums", []) if a.get("image")]
+        result["top_playlists"] = [_make_card(p) for p in home.get("top_playlists", []) if p.get("image")]
+        trending = home.get("trending", {})
+        if isinstance(trending, dict):
+            result["trending"] = [_make_card(t) for t in trending.get("albums", []) if t.get("image")]
+
+        # Scan promo sections (promo0 … promo9) — JioSaavn sometimes puts playlists here
+        for key, val in home.items():
+            if key.lower().startswith("promo") and isinstance(val, list):
+                for item in val:
+                    if isinstance(item, dict) and item.get("image"):
+                        card = _make_card(item)
+                        itype = item.get("type", "")
+                        if itype == "playlist" and card["id"] not in {c["id"] for c in result["featured_playlists"]}:
+                            result["featured_playlists"].append(card)
+                        elif itype == "album" and card["id"] not in {c["id"] for c in result["new_albums"]}:
+                            result["new_albums"].append(card)
+    except Exception:
         session.cookies.set("L", "telugu,english", domain="www.jiosaavn.com")
-        raise HTTPException(500, f"Failed to fetch Hindi featured content: {e}")
+
+    # ── Strategy 2: Explicit charts call if still empty ───────────────────
+    if not result["charts"]:
+        try:
+            chart_data = _api({"__call": "content.getCharts", "language": "hindi", "languages": "hindi"})
+            items = chart_data if isinstance(chart_data, list) else chart_data.get("charts", chart_data.get("data", []))
+            result["charts"] = [_make_card(c) for c in items if isinstance(c, dict) and c.get("image")]
+        except Exception:
+            pass
+
+    # ── Strategy 3: Build "virtual playlists" from song searches ──────────
+    # Only needed if featured_playlists + charts are still empty
+    if not result["featured_playlists"] and not result["charts"]:
+        virtual_queries = [
+            ("🔥 Trending Hindi 2024", "trending hindi 2024"),
+            ("💕 Bollywood Romance", "bollywood romantic songs"),
+            ("🎉 Hindi Party Hits", "hindi party dance songs"),
+            ("😢 Sad Hindi Songs", "sad hindi songs"),
+            ("🏆 Arijit Singh Hits", "arijit singh best songs"),
+            ("⭐ Atif Aslam Hits", "atif aslam songs"),
+            ("🎵 90s Bollywood", "90s bollywood classic"),
+            ("🌙 Hindi Devotional", "hindi bhajans devotional"),
+        ]
+        seen_album_ids: set = set()
+        for playlist_name, query in virtual_queries:
+            try:
+                data = _api({"__call": "search.getResults", "q": query, "p": "1", "n": "10", "languages": "hindi"})
+                songs = data.get("results", [])
+                if not songs:
+                    continue
+                # Use the first song's image as the playlist cover
+                cover = _image_hq(songs[0].get("image", ""))
+                if not cover:
+                    continue
+                # Collect unique album cards for "new_albums" from this batch
+                for song in songs:
+                    aid = song.get("albumid", "")
+                    if aid and aid not in seen_album_ids:
+                        seen_album_ids.add(aid)
+                        result["new_albums"].append({
+                            "id": aid,
+                            "title": _clean(song.get("album", "")),
+                            "subtitle": _clean(song.get("primary_artists", "")),
+                            "image": cover,
+                            "type": "album",
+                            "language": "hindi",
+                            "year": song.get("year", ""),
+                            "artist": _clean(song.get("primary_artists", "")),
+                        })
+                # Add as a virtual "playlist" card (clicking navigates to first song's album)
+                first_album_id = songs[0].get("albumid", "")
+                if first_album_id:
+                    result["featured_playlists"].append({
+                        "id": first_album_id,
+                        "title": playlist_name,
+                        "subtitle": f"{len(songs)} songs",
+                        "image": cover,
+                        "type": "album",
+                        "language": "hindi",
+                        "year": "",
+                        "artist": "",
+                    })
+            except Exception:
+                continue
+
+    return result
 
 
 # ─── Serve Frontend ──────────────────────────────────────────────────────────

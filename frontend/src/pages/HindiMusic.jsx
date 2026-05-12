@@ -108,14 +108,15 @@ const HindiMusic = () => {
   const [featuredLoading, setFeaturedLoading] = useState(true);
   const [featuredError, setFeaturedError] = useState(null);
 
-  // ── Fetch Albums (once) ────────────────────────────────────────────────────
+  // ── Fetch Albums (once, or retry if empty) ────────────────────────────────
   useEffect(() => {
-    if (activeTab !== "albums" || albumFetched) return;
+    if (activeTab !== "albums") return;
+    // Re-fetch if not yet fetched, OR if previous fetch returned empty
+    if (albumFetched && allAlbums.length > 0) return;
     const fetchAll = async () => {
       setAlbumLoading(true);
       try {
-        // Fetch a large batch in one shot; JioSaavn only returns reliably for p=1
-        const res = await axios.get(`/api/hindi/albums?page=1&limit=50`);
+        const res = await axios.get(`/api/hindi/albums`);
         setAllAlbums(res.data.data || []);
         setAlbumFetched(true);
       } catch (e) {
@@ -215,12 +216,19 @@ const HindiMusic = () => {
 
           {featuredError && !featuredLoading && (
             <div className="text-center py-20">
-              <p className="text-gray-400 mb-4">{featuredError}</p>
+              <p className="text-red-400 mb-2">⚠️ {featuredError}</p>
+              <p className="text-gray-500 text-xs mb-4">
+                Check{" "}
+                <a href="/api/hindi/debug" target="_blank" rel="noreferrer" className="text-green-400 underline">
+                  /api/hindi/debug
+                </a>{" "}
+                to see what JioSaavn returns.
+              </p>
               <button
-                onClick={() => { setFeatured(null); setFeaturedError(null); }}
+                onClick={() => { setFeatured(null); setFeaturedError(null); setFeaturedLoading(true); }}
                 className="px-5 py-2 bg-green-500 text-black font-semibold rounded-lg hover:bg-green-400 transition"
               >
-                Retry
+                🔄 Retry
               </button>
             </div>
           )}
