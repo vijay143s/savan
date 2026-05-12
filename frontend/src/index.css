@@ -1,0 +1,89 @@
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap");
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-family: "Poppins", sans-serif;
+  @apply bg-black;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* Mobile optimization */
+@media (max-width: 768px) {
+  body {
+    font-size: 14px;
+  }
+  
+  input, button, textarea, select {
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+}
+
+.auth-input {
+  @apply w-full p-3 bg-gray-800 rounded-md border border-gray-700 focus:outline-none focus:border-gray-500;
+}
+
+.auth-btn {
+  @apply w-full bg-green-500 hover:bg-green-400 text-black font-semibold p-3 rounded-full;
+}
+
+/* Scrollbar styling */
+*::-webkit-scrollbar {
+  height: 0.5rem;
+  width: 0.5rem;
+}
+
+*::-webkit-scrollbar-track {
+  background-color: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background-color: #2e2d2b;
+  border-radius: 0.25rem;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background-color: #3e3d3b;
+}
+
+/* Progress bar styling */
+.progress-bar {
+  @apply appearance-none bg-transparent cursor-pointer;
+  height: 4px;
+}
+
+.progress-bar::-webkit-slider-thumb {
+  @apply appearance-none w-3 h-3 rounded-full bg-green-500 cursor-pointer hover:scale-125 transition;
+}
+
+.progress-bar::-moz-range-thumb {
+  @apply w-3 h-3 rounded-full bg-green-500 cursor-pointer hover:scale-125 transition border-0;
+}
+
+.progress-bar::-webkit-slider-runnable-track {
+  @apply w-full h-1 bg-gray-700 rounded;
+}
+
+.progress-bar::-moz-range-track {
+  @apply w-full h-1 bg-gray-700 rounded;
+}
+
+/* Touch-friendly elements */
+@media (max-width: 768px) {
+  button {
+    min-height: 44px; /* Apple's recommended touch target size */
+    min-width: 44px;
+  }
+}
+
+/* Prevent double tap zoom on buttons */
+a, button, input, select, textarea {
+  -webkit-touch-callout: none;
+}
