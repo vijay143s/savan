@@ -1,14 +1,6 @@
 #!/usr/bin/env python3
 """
-JioSaavn Music Web App — Backend API Server.
-
-A FastAPI server that proxies JioSaavn API calls, decrypts media URLs,
-and serves the frontend static files.
-
-Run:
-    python server.py
-    # or
-    uvicorn server:app --reload --port 3000
+JioSaavn Music Web App — Backend API Server (Optimized for cPanel)
 """
 
 import base64
@@ -56,8 +48,6 @@ session.headers.update({
     "Referer": "https://www.jiosaavn.com/",
     "Origin": "https://www.jiosaavn.com",
 })
-session.cookies.set("L", "telugu,english", domain="www.jiosaavn.com")
-
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -66,10 +56,15 @@ def _api(params: dict) -> dict:
     params.setdefault("_format", "json")
     params.setdefault("_marker", "0")
     params.setdefault("ctx", "web6dot0")
-    # Add default languages if not present
+    
+    # Ensure language cookie is set
+    if not session.cookies.get("L", domain="www.jiosaavn.com"):
+        session.cookies.set("L", "telugu,english", domain="www.jiosaavn.com")
+        
     if "languages" not in params:
         params["languages"] = "telugu,english"
-    resp = session.get(API_BASE, params=params, timeout=20)
+        
+    resp = session.get(API_BASE, params=params, timeout=15)
     resp.raise_for_status()
     return resp.json()
 
@@ -103,7 +98,6 @@ def _image_hq(url: str) -> str:
 
 def _format_song(raw: dict) -> dict:
     """Normalize a raw song dict into a clean, frontend-friendly format."""
-    # Decrypt streaming URL
     stream_url = ""
     enc = raw.get("encrypted_media_url", "")
     if enc:
@@ -118,7 +112,6 @@ def _format_song(raw: dict) -> dict:
         except Exception:
             pass
 
-    # Fallback to preview URL
     if not stream_url:
         preview = raw.get("media_preview_url", "")
         if preview:
@@ -149,7 +142,6 @@ def _format_song(raw: dict) -> dict:
 
 
 def _format_album(raw: dict) -> dict:
-    """Format album/playlist data."""
     songs = []
     for s in raw.get("songs", raw.get("list", [])):
         if isinstance(s, dict):
@@ -169,7 +161,6 @@ def _format_album(raw: dict) -> dict:
 
 
 def _format_card(raw: dict) -> dict:
-    """Format a homepage card (album, playlist, chart)."""
     return {
         "id": raw.get("albumid", raw.get("listid", raw.get("id", ""))),
         "title": _clean(raw.get("title", raw.get("name", raw.get("listname", "")))),
@@ -185,9 +176,13 @@ def _format_card(raw: dict) -> dict:
 
 # ─── API Endpoints ───────────────────────────────────────────────────────────
 
+@app.get("/api/health")
+def health_check():
+    """Verify backend is reachable."""
+    return {"status": "ok", "message": "Savana Music API is healthy"}
+
 @app.get("/api/search")
 def search(q: str = Query(..., min_length=1), page: int = 1, limit: int = 20):
-    """Search songs by query."""
     data = _api({
         "__call": "search.getResults",
         "q": q,
@@ -200,56 +195,32 @@ def search(q: str = Query(..., min_length=1), page: int = 1, limit: int = 20):
         "results": [_format_song(s) for s in results],
     }
 
-
 @app.get("/api/song/{song_id}")
 def get_song(song_id: str):
-    """Get song details with streaming URL."""
-    data = _api({
-        "__call": "song.getDetails",
-        "pids": song_id,
-    })
+    data = _api({"__call": "song.getDetails", "pids": song_id})
     songs = data.get("songs", [])
-    if not songs:
-        raise HTTPException(404, "Song not found")
+    if not songs: raise HTTPException(404, "Song not found")
     return _format_song(songs[0])
-
 
 @app.get("/api/songs")
 def get_songs(ids: str = Query(..., description="Comma-separated song IDs")):
-    """Get details for multiple songs."""
-    data = _api({
-        "__call": "song.getDetails",
-        "pids": ids,
-    })
+    data = _api({"__call": "song.getDetails", "pids": ids})
     songs = data.get("songs", [])
     return [_format_song(s) for s in songs]
 
-
 @app.get("/api/album/{album_id}")
 def get_album(album_id: str):
-    """Get album details with all songs."""
-    data = _api({
-        "__call": "content.getAlbumDetails",
-        "albumid": album_id,
-    })
+    data = _api({"__call": "content.getAlbumDetails", "albumid": album_id})
     return _format_album(data)
-
 
 @app.get("/api/playlist/{playlist_id}")
 def get_playlist(playlist_id: str):
-    """Get playlist details with all songs."""
-    data = _api({
-        "__call": "playlist.getDetails",
-        "listid": playlist_id,
-    })
+    data = _api({"__call": "playlist.getDetails", "listid": playlist_id})
     return _format_album(data)
-
 
 @app.get("/api/home")
 def get_home():
-    """Get homepage data (new albums, playlists, charts, genres)."""
     data = _api({"__call": "content.getHomepageData"})
-
     return {
         "new_albums": [_format_card(a) for a in data.get("new_albums", [])],
         "playlists": [_format_card(p) for p in data.get("featured_playlists", [])],
@@ -261,30 +232,16 @@ def get_home():
         ],
     }
 
-
 @app.get("/api/lyrics/{song_id}")
 def get_lyrics(song_id: str):
-    """Get lyrics for a song."""
     try:
-        data = _api({
-            "__call": "lyrics.getLyrics",
-            "lyrics_id": song_id,
-        })
-        return {
-            "lyrics": _clean(data.get("lyrics", "")),
-            "snippet": _clean(data.get("lyrics_snippet", "")),
-        }
-    except Exception:
-        raise HTTPException(404, "Lyrics not found")
-
+        data = _api({"__call": "lyrics.getLyrics", "lyrics_id": song_id})
+        return {"lyrics": _clean(data.get("lyrics", "")), "snippet": _clean(data.get("lyrics_snippet", ""))}
+    except Exception: raise HTTPException(404, "Lyrics not found")
 
 @app.get("/api/artist/{artist_id}")
 def get_artist(artist_id: str):
-    """Get artist details."""
-    data = _api({
-        "__call": "artist.getArtistPageDetails",
-        "artistId": artist_id,
-    })
+    data = _api({"__call": "artist.getArtistPageDetails", "artistId": artist_id})
     top_songs = [_format_song(s) for s in data.get("topSongs", [])]
     top_albums = [_format_card(a) for a in data.get("topAlbums", [])]
     return {
@@ -296,43 +253,34 @@ def get_artist(artist_id: str):
         "top_albums": top_albums,
     }
 
-
 @app.get("/api/suggestions/{song_id}")
 def get_suggestions(song_id: str):
-    """Get song suggestions / radio based on a song."""
     try:
-        data = _api({
-            "__call": "reco.getreco",
-            "pid": song_id,
-        })
-        if isinstance(data, list):
-            return [_format_song(s) for s in data[:20]]
+        data = _api({"__call": "reco.getreco", "pid": song_id})
+        if isinstance(data, list): return [_format_song(s) for s in data[:20]]
         return []
-    except Exception:
-        return []
-
+    except Exception: return []
 
 # ─── Serve Frontend ──────────────────────────────────────────────────────────
 
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
+# Mount assets first (CSS, JS, Images)
+if os.path.isdir(os.path.join(static_dir, "assets")):
+    app.mount("/assets", StaticFiles(directory=os.path.join(static_dir, "assets")), name="assets")
 
-@app.get("/")
-def serve_index():
+@app.get("/{full_path:path}")
+def serve_spa(full_path: str):
+    """Catch-all route to serve the Single Page App (SPA)."""
+    # If it's a real file in static, serve it
+    file_path = os.path.join(static_dir, full_path)
+    if os.path.isfile(file_path):
+        return FileResponse(file_path)
+    # Otherwise, return index.html for React routing
     return FileResponse(os.path.join(static_dir, "index.html"))
-
-
-# Mount static files AFTER the API routes
-if os.path.isdir(static_dir):
-    app.mount("/", StaticFiles(directory=static_dir, html=True), name="static")
-
 
 # ─── Entry Point ─────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import uvicorn
-    print()
-    print("🎵 Savana Music Server starting...")
-    print("   Open http://localhost:3000 in your browser")
-    print()
     uvicorn.run(app, host="0.0.0.0", port=3000)
