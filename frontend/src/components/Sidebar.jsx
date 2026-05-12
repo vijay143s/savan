@@ -2,7 +2,7 @@ import React from "react";
 import { NavLink } from "react-router-dom";
 import { GoHome } from "react-icons/go";
 import { IoSearch } from "react-icons/io5";
-import { FaMusic, FaHeart } from "react-icons/fa";
+import { FaMusic, FaHeart, FaIndianRupeeSign } from "react-icons/fa6";
 import { MdQueueMusic } from "react-icons/md";
 
 const Sidebar = () => {
@@ -38,6 +38,10 @@ const Sidebar = () => {
         <NavLink to="/liked" className={linkClass}>
           <FaHeart size={18} className="ml-0.5 mr-0.5" />
           <span>Liked Songs</span>
+        </NavLink>
+        <NavLink to="/hindi" className={linkClass}>
+          <FaIndianRupeeSign size={18} className="ml-0.5 mr-0.5" />
+          <span>Hindi Music</span>
         </NavLink>
       </nav>
 

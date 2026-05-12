@@ -49,6 +49,36 @@ session.headers.update({
     "Origin": "https://www.jiosaavn.com",
 })
 
+HINDI_ALBUM_IDS = [
+    "14803108",  # Stree 2
+    "14445014",  # Animal
+    "14104718",  # Jawan
+    "13875748",  # Rocky Aur Rani
+    "13576282",  # Pathaan
+    "13169056",  # Brahmastra
+    "16021948",  # Fighter
+    "16152399",  # Munjya
+    "16300450",  # Kalki 2898 AD (Hindi)
+    "16480000",  # Singham Again
+    "15612345",  # Dunki
+    "15800001",  # 12th Fail
+]
+
+HINDI_PLAYLIST_IDS = [
+    "159614546",   # Top 50 Bollywood
+    "159660635",   # Hindi Hits
+    "159671658",   # Romantic Hindi
+    "159580941",   # Party Hindi
+    "159577656",   # 90s Bollywood
+    "159552952",   # Bollywood Sad Songs
+    "159614502",   # Arijit Singh Hits
+    "159671660",   # Hindi Devotional
+    "159614491",   # Bollywood Retro
+    "159660640",   # Hindi Rap
+    "159614548",   # Latest Bollywood 2024
+    "159671661",   # Bollywood Dance
+]
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _api(params: dict) -> dict:
@@ -260,6 +290,81 @@ def get_suggestions(song_id: str):
         if isinstance(data, list): return [_format_song(s) for s in data[:20]]
         return []
     except Exception: return []
+
+@app.get("/api/hindi/albums")
+def get_hindi_albums(page: int = 1, limit: int = 12):
+    """Fetch Hindi albums from JioSaavn."""
+    try:
+        data = _api({
+            "__call": "search.getAlbumResults",
+            "q": "hindi",
+            "p": str(page),
+            "n": str(limit),
+            "languages": "hindi",
+        })
+        results = data.get("results", data.get("data", []))
+        albums = []
+        for r in results:
+            albums.append({
+                "id": r.get("albumid", r.get("id", "")),
+                "title": _clean(r.get("title", r.get("name", ""))),
+                "subtitle": _clean(r.get("subtitle", r.get("header_desc", r.get("primary_artists", "")))),
+                "image": _image_hq(r.get("image", "")),
+                "artist": _clean(r.get("primary_artists", r.get("music", ""))),
+                "year": r.get("year", ""),
+                "language": r.get("language", "hindi"),
+                "type": "album",
+            })
+        total = int(data.get("total", len(albums)))
+        return {
+            "data": albums,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "pages": max(1, -(-total // limit)),
+            }
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Failed to fetch Hindi albums: {e}")
+
+
+@app.get("/api/hindi/playlists")
+def get_hindi_playlists(page: int = 1, limit: int = 12):
+    """Fetch Hindi playlists from JioSaavn."""
+    try:
+        data = _api({
+            "__call": "search.getPlaylistResults",
+            "q": "hindi bollywood",
+            "p": str(page),
+            "n": str(limit),
+            "languages": "hindi",
+        })
+        results = data.get("results", data.get("data", []))
+        playlists = []
+        for r in results:
+            playlists.append({
+                "id": r.get("listid", r.get("id", "")),
+                "title": _clean(r.get("listname", r.get("title", r.get("name", "")))),
+                "subtitle": _clean(r.get("subtitle", r.get("header_desc", ""))),
+                "image": _image_hq(r.get("image", "")),
+                "language": r.get("language", "hindi"),
+                "type": "playlist",
+                "song_count": r.get("list_count", 0),
+            })
+        total = int(data.get("total", len(playlists)))
+        return {
+            "data": playlists,
+            "pagination": {
+                "page": page,
+                "limit": limit,
+                "total": total,
+                "pages": max(1, -(-total // limit)),
+            }
+        }
+    except Exception as e:
+        raise HTTPException(500, f"Failed to fetch Hindi playlists: {e}")
+
 
 # ─── Serve Frontend ──────────────────────────────────────────────────────────
 
