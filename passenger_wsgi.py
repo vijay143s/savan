@@ -11,18 +11,18 @@ def get_file_preview(filename):
         with open(os.path.join(APP_DIR, filename), 'r') as f:
             return "".join(f.readlines()[:10])
     except:
-        return "Could not read file"
+        return f"Could not read {filename}"
 
 try:
     import a2wsgi
     import fastapi
     
-    # Try to import using the module directly
-    import server
-    app = getattr(server, 'app', None)
+    # Try to import using the new name 'api'
+    import api
+    app = getattr(api, 'app', None)
     
     if app is None:
-        raise ImportError(f"The 'app' variable was not found inside server.py. Contents of server.py:\n{get_file_preview('server.py')}")
+        raise ImportError(f"The 'app' variable was not found inside api.py. Contents of api.py:\n{get_file_preview('api.py')}")
     
     application = a2wsgi.ASGIMiddleware(app)
 
@@ -34,7 +34,7 @@ except Exception:
             f"DIAGNOSTIC REPORT\n"
             f"=================\n"
             f"Error:\n{error_trace}\n"
-            f"Server.py Preview:\n{get_file_preview('server.py')}\n"
+            f"api.py Preview:\n{get_file_preview('api.py')}\n"
             f"Python Path: {sys.path}\n"
         )
         return [body.encode()]
