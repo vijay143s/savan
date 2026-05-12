@@ -1,0 +1,62 @@
+name: Deploy Savan Music App
+
+on:
+  push:
+    branches:
+      - 'main'
+      - 'master'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Frontend dependencies
+        run: |
+          cd frontend
+          npm install
+
+      - name: Build frontend
+        run: |
+          cd frontend
+          npm run build
+
+      - name: Prepare static folder for Backend
+        run: |
+          mkdir -p static
+          cp -r frontend/dist/* static/
+
+      - name: Deploy to cPanel via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+        with:
+          server: 65.108.76.42
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          port: ${{ secrets.FTP_PORT || 21 }}
+          local-dir: ./
+          server-dir: /
+          exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            **/frontend/**
+            **/.env*
+            **/*.md
+            **/logs/**
+            **/.cache/**
+            **/.npm-cache/**
+
+      - name: Deployment Summary
+        run: |
+          echo "✅ Deployment completed!"
+          echo "📁 Backend files and static assets uploaded."
+
