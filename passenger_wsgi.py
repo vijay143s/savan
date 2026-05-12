@@ -16,10 +16,11 @@ try:
     application = a2wsgi.ASGIMiddleware(app)
 
 except ImportError as e:
-    # Specifically handle missing modules
+    # Capture error to string so it persists inside the function scope
+    error_str = str(e)
     def application(environ, start_response):
         start_response('500 Internal Server Error', [('Content-Type', 'text/plain')])
-        body = f"Missing Dependency Error: {str(e)}\n\nPlease run 'Pip Install' on requirements.txt in cPanel.\nPath: {APP_DIR}\nPython: {sys.version}"
+        body = f"Missing Dependency Error: {error_str}\n\nPlease run 'Pip Install' on requirements.txt in cPanel.\nPath: {APP_DIR}\nPython: {sys.version}"
         return [body.encode()]
 
 except Exception:
