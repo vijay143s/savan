@@ -43,7 +43,7 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           port: ${{ secrets.FTP_PORT || 21 }}
           local-dir: ./
-          server-dir: music.mcaandassoc.com/
+          server-dir: ./
           exclude: |
             **/.git*
             **/.git*/**
