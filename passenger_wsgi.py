@@ -6,30 +6,35 @@ import traceback
 APP_DIR = os.path.dirname(__file__)
 sys.path.insert(0, APP_DIR)
 
+def get_file_preview(filename):
+    try:
+        with open(os.path.join(APP_DIR, filename), 'r') as f:
+            return "".join(f.readlines()[:10])
+    except:
+        return "Could not read file"
+
 try:
-    # 1. Try to import dependencies first to see if they exist
     import a2wsgi
     import fastapi
-    import requests
     
-    # 2. Try to load the app
-    from server import app
+    # Try to import using the module directly
+    import server
+    app = getattr(server, 'app', None)
     
-    # 3. Initialize the bridge
+    if app is None:
+        raise ImportError(f"The 'app' variable was not found inside server.py. Contents of server.py:\n{get_file_preview('server.py')}")
+    
     application = a2wsgi.ASGIMiddleware(app)
 
 except Exception:
-    # Capture the FULL error traceback so we can see the exact line of failure
     error_trace = traceback.format_exc()
-    
     def application(environ, start_response):
         start_response('500 Internal Server Error', [('Content-Type', 'text/plain')])
         body = (
-            f"DEPLOYMENT DEBUG INFO\n"
-            f"=====================\n"
-            f"Error Traceback:\n{error_trace}\n"
-            f"Path: {APP_DIR}\n"
-            f"Python: {sys.version}\n"
-            f"Files in directory: {os.listdir(APP_DIR)}\n"
+            f"DIAGNOSTIC REPORT\n"
+            f"=================\n"
+            f"Error:\n{error_trace}\n"
+            f"Server.py Preview:\n{get_file_preview('server.py')}\n"
+            f"Python Path: {sys.path}\n"
         )
         return [body.encode()]
