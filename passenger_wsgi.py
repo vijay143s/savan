@@ -1,11 +1,18 @@
 import os
 import sys
 
-# Add the app directory to the path so we can import server.py
-sys.path.insert(0, os.path.dirname(__file__))
+# Define the application directory
+APP_DIR = os.path.dirname(__file__)
+sys.path.insert(0, APP_DIR)
 
-from a2wsgi import ASGIMiddleware
-from server import app
-
-# This is the entry point Passenger looks for
-application = ASGIMiddleware(app)
+try:
+    from a2wsgi import ASGIMiddleware
+    from server import app
+    
+    # This is what Passenger looks for
+    application = ASGIMiddleware(app)
+except Exception as e:
+    # If the app fails to load, this helps debug
+    def application(environ, start_response):
+        start_response('500 Internal Server Error', [('Content-Type', 'text/plain')])
+        return [f"Error loading application: {str(e)}\nPath: {APP_DIR}\nPython: {sys.version}".encode()]
